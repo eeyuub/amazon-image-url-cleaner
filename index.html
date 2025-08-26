@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon Image URL Cleaner</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Use Inter as the default font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple transition for better UX */
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-2xl mx-auto p-6 md:p-8 bg-white rounded-2xl shadow-lg">
+        
+        <!-- Header Section -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Amazon Image URL Cleaner</h1>
+            <p class="text-gray-500 mt-2">Paste a complex Amazon image URL to get the clean, high-resolution version.</p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="space-y-4">
+            <label for="imageUrl" class="block text-sm font-medium text-gray-700">Image URL</label>
+            <input type="url" id="imageUrl" placeholder="https://m.media-amazon.com/images/I/..." class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" />
+            <button id="cleanBtn" class="w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md">
+                Clean URL
+            </button>
+        </div>
+
+        <!-- Result Section -->
+        <div id="result-container" class="mt-8 hidden">
+            <h2 class="text-lg font-semibold text-gray-800 mb-2">Cleaned URL:</h2>
+            <div class="relative p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <p id="resultUrl" class="text-blue-600 break-all"></p>
+            </div>
+            <!-- Action Buttons -->
+            <div id="action-buttons" class="mt-4 flex flex-col sm:flex-row gap-3">
+                <button id="openBtn" class="flex-1 bg-green-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all">Open in New Tab</button>
+                <button id="copyBtn" class="flex-1 bg-indigo-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all">Copy URL</button>
+                <button id="downloadBtn" class="flex-1 bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all">Download Image</button>
+            </div>
+            <!-- Message Box for feedback -->
+            <div id="messageBox" class="mt-4 text-center text-sm font-medium"></div>
+        </div>
+        
+        <!-- Error Section -->
+        <div id="error-container" class="mt-6 hidden">
+             <div class="p-4 bg-red-100 border border-red-300 text-red-700 rounded-lg">
+                <p id="errorMessage"></p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- DOM Element Selection ---
+        const imageUrlInput = document.getElementById('imageUrl');
+        const cleanBtn = document.getElementById('cleanBtn');
+        const resultContainer = document.getElementById('result-container');
+        const errorContainer = document.getElementById('error-container');
+        const resultUrlElement = document.getElementById('resultUrl');
+        const errorMessageElement = document.getElementById('errorMessage');
+        const messageBox = document.getElementById('messageBox');
+        
+        // Action Buttons
+        const openBtn = document.getElementById('openBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        // --- State Variable ---
+        let cleanedUrl = ''; // To store the latest cleaned URL
+
+        // --- Event Listeners ---
+        cleanBtn.addEventListener('click', handleCleanUrl);
+        openBtn.addEventListener('click', openInNewTab);
+        copyBtn.addEventListener('click', copyToClipboard);
+        downloadBtn.addEventListener('click', downloadImage);
+        
+        // Allow pressing Enter in the input field to trigger the button click
+        imageUrlInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault(); // Prevent form submission if it's inside a form
+                cleanBtn.click();
+            }
+        });
+
+        /**
+         * Main function to process the URL cleaning logic.
+         */
+        function handleCleanUrl() {
+            // Hide previous results and errors
+            resultContainer.classList.add('hidden');
+            errorContainer.classList.add('hidden');
+            messageBox.textContent = '';
+            cleanedUrl = '';
+            
+            const rawUrl = imageUrlInput.value.trim();
+
+            if (!rawUrl) {
+                showError("Please paste a URL into the input field.");
+                return;
+            }
+
+            try {
+                // The core transformation logic
+                const separator = '/images/I/';
+                const urlParts = rawUrl.split(separator);
+
+                if (urlParts.length < 2) {
+                    throw new Error("Invalid URL format. The URL does not seem to be a standard Amazon image link.");
+                }
+
+                const baseUrl = urlParts[0] + separator;
+                const imagePath = urlParts[1];
+                
+                const pathSegments = imagePath.split('%7C');
+
+                if (pathSegments.length < 3) {
+                     throw new Error("Could not find the expected image filename in the URL. Please check the link.");
+                }
+
+                const cleanFilename = pathSegments[2];
+                const finalUrl = baseUrl + cleanFilename;
+                
+                cleanedUrl = finalUrl; // Store the URL for action buttons
+                showResult(finalUrl);
+
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        /**
+         * Displays the cleaned URL in the result section.
+         * @param {string} url - The final, cleaned URL.
+         */
+        function showResult(url) {
+            resultUrlElement.textContent = url;
+            resultContainer.classList.remove('hidden');
+        }
+
+        /**
+         * Displays an error message to the user.
+         * @param {string} message - The error message to display.
+         */
+        function showError(message) {
+            errorMessageElement.textContent = message;
+            errorContainer.classList.remove('hidden');
+        }
+
+        /**
+         * Opens the cleaned URL in a new browser tab.
+         */
+        function openInNewTab() {
+            if (cleanedUrl) {
+                window.open(cleanedUrl, '_blank');
+            }
+        }
+
+        /**
+         * Copies the cleaned URL to the user's clipboard.
+         */
+        function copyToClipboard() {
+            if (!cleanedUrl) return;
+            
+            const textArea = document.createElement('textarea');
+            textArea.value = cleanedUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            
+            try {
+                document.execCommand('copy');
+                showMessage("Copied to clipboard!", "text-green-600");
+            } catch (err) {
+                showMessage("Failed to copy.", "text-red-600");
+                console.error('Failed to copy text: ', err);
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        /**
+         * Downloads the image from the cleaned URL.
+         */
+        async function downloadImage() {
+            if (!cleanedUrl) return;
+
+            showMessage("Starting download...", "text-gray-600");
+            try {
+                // Fetch the image data
+                const response = await fetch(cleanedUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch image. Status: ${response.status}`);
+                }
+                const blob = await response.blob();
+
+                // Create a temporary link to trigger the download
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                
+                // Extract filename from URL
+                const filename = cleanedUrl.split('/').pop();
+                link.download = filename || 'amazon-image.png';
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                // Clean up the object URL
+                URL.revokeObjectURL(link.href);
+                showMessage("Download started successfully!", "text-green-600");
+            } catch (error) {
+                console.error("Download failed:", error);
+                showMessage("Download failed. See console for details.", "text-red-600");
+            }
+        }
+        
+        /**
+         * Shows a temporary message to the user (e.g., for copy success/failure).
+         * @param {string} text - The message text.
+         * @param {string} colorClass - The Tailwind CSS class for the text color.
+         */
+        function showMessage(text, colorClass) {
+            messageBox.textContent = text;
+            messageBox.className = `mt-4 text-center text-sm font-medium ${colorClass}`;
+            
+            // Clear the message after 3 seconds
+            setTimeout(() => {
+                if (messageBox.textContent === text) {
+                    messageBox.textContent = '';
+                }
+            }, 3000);
+        }
+
+    </script>
+</body>
+</html>
