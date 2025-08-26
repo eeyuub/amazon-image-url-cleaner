@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Amazon Image Downloader</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- JSZip Library for creating ZIP files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- SheetJS (xlsx) Library for reading Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .transition-all { transition: all 0.3s ease-in-out; }
+        .file-drop-area { border: 2px dashed #cbd5e1; }
+        .file-drop-area.dragover { border-color: #3b82f6; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl mx-auto p-6 md:p-8 bg-white rounded-2xl shadow-lg">
+        
+        <!-- Header Section -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Bulk Image Downloader</h1>
+            <p class="text-gray-500 mt-2">Upload an Excel file (.xlsx) with Amazon image URLs to download a ZIP file of the images and a summary report.</p>
+        </div>
+
+        <!-- File Upload Section -->
+        <div id="upload-container">
+            <div id="file-drop-area" class="file-drop-area rounded-lg p-8 text-center cursor-pointer">
+                <input type="file" id="file-input" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <p class="mt-4 text-gray-600">
+                    <span class="font-semibold text-blue-600">Click to upload</span> or drag and drop
+                </p>
+                <p class="text-xs text-gray-500 mt-1">Excel files (.xlsx) only</p>
+                <p id="file-name" class="mt-4 font-medium text-gray-700"></p>
+            </div>
+            <button id="processBtn" class="mt-4 w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                Process File and Download Images
+            </button>
+        </div>
+
+        <!-- Status & Download Section -->
+        <div id="status-container" class="mt-6 text-center">
+            <p id="status-message" class="text-lg font-medium"></p>
+            <div id="download-container" class="mt-4"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element Selection ---
+        const fileDropArea = document.getElementById('file-drop-area');
+        const fileInput = document.getElementById('file-input');
+        const fileNameDisplay = document.getElementById('file-name');
+        const processBtn = document.getElementById('processBtn');
+        const statusMessage = document.getElementById('status-message');
+        const downloadContainer = document.getElementById('download-container');
+
+        let selectedFile = null;
+
+        // --- Event Listeners ---
+        fileDropArea.addEventListener('click', () => fileInput.click());
+        fileDropArea.addEventListener('dragover', (e) => { e.preventDefault(); fileDropArea.classList.add('dragover'); });
+        fileDropArea.addEventListener('dragleave', () => fileDropArea.classList.remove('dragover'));
+        fileDropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileDropArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+        processBtn.addEventListener('click', processFile);
+
+        function handleFile(file) {
+            if (!file.type.match(/spreadsheetml/)) {
+                updateStatus('Error: Please upload a valid .xlsx file.', 'text-red-600');
+                return;
+            }
+            selectedFile = file;
+            fileNameDisplay.textContent = `Selected file: ${file.name}`;
+            processBtn.disabled = false;
+            updateStatus('');
+        }
+
+        async function processFile() {
+            if (!selectedFile) return;
+            processBtn.disabled = true;
+            updateStatus('Processing file...', 'text-gray-700');
+            downloadContainer.innerHTML = '';
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    const cleanedUrls = new Set();
+                    jsonData.forEach(row => {
+                        if (row && row.length > 0) {
+                            const rawUrl = String(row[0]).trim();
+                            if (rawUrl.includes('media-amazon.com/images/I/')) {
+                                const cleanedUrl = cleanUrl(rawUrl);
+                                if (cleanedUrl) cleanedUrls.add(cleanedUrl);
+                            }
+                        }
+                    });
+
+                    const urlsToDownload = Array.from(cleanedUrls);
+                    if (urlsToDownload.length === 0) {
+                        updateStatus('No valid Amazon image URLs found in the first column.', 'text-yellow-600');
+                        processBtn.disabled = false;
+                        return;
+                    }
+
+                    updateStatus(`Found ${urlsToDownload.length} unique URLs. Starting download...`, 'text-blue-600');
+                    await createAndDownloadZip(urlsToDownload);
+
+                } catch (error) {
+                    console.error("Error processing Excel file:", error);
+                    updateStatus('Error: Could not read or process the file.', 'text-red-600');
+                } finally {
+                    processBtn.disabled = false;
+                }
+            };
+            reader.readAsArrayBuffer(selectedFile);
+        }
+
+        function cleanUrl(rawUrl) {
+            try {
+                const separator = '/images/I/';
+                const urlParts = rawUrl.split(separator);
+                if (urlParts.length < 2) return null;
+                const imagePath = urlParts[1];
+                const pathSegments = imagePath.split('%7C');
+                if (pathSegments.length < 3) return null;
+                return urlParts[0] + separator + pathSegments[2];
+            } catch { return null; }
+        }
+
+        async function createAndDownloadZip(urls) {
+            const zip = new JSZip();
+            const results = [];
+            let progress = 0;
+
+            const promises = urls.map(url =>
+                fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.blob();
+                })
+                .then(blob => {
+                    const filename = url.split('/').pop().split('?')[0];
+                    zip.file(filename, blob);
+                    results.push({ url, filename, status: 'success' });
+                })
+                .catch(error => {
+                    console.error(`Failed to download ${url}:`, error);
+                    results.push({ url, filename: null, status: 'failed' });
+                })
+                .finally(() => {
+                    progress++;
+                    updateStatus(`Downloading images... (${progress}/${urls.length})`, 'text-blue-600');
+                })
+            );
+
+            await Promise.all(promises);
+
+            const successfulDownloads = results.filter(r => r.status === 'success').length;
+            if (successfulDownloads === 0) {
+                updateStatus('Error: Failed to download any images.', 'text-red-600');
+                return;
+            }
+
+            updateStatus('Generating summary report...', 'text-blue-600');
+            const reportHtml = generateHtmlReport(results);
+            zip.file("summary.html", reportHtml);
+
+            updateStatus('Compressing ZIP file...', 'text-green-600');
+            const zipBlob = await zip.generateAsync({ type: "blob" });
+            
+            const downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(zipBlob);
+            downloadLink.download = "amazon_images_report.zip";
+            downloadLink.className = "inline-block bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-all";
+            downloadLink.textContent = "Download ZIP File";
+            
+            downloadContainer.innerHTML = '';
+            downloadContainer.appendChild(downloadLink);
+            
+            const failedCount = urls.length - successfulDownloads;
+            let finalMessage = `Success! ${successfulDownloads} images are ready.`;
+            if (failedCount > 0) finalMessage += ` (${failedCount} failed.)`;
+            updateStatus(finalMessage, 'text-green-600');
+        }
+
+        function generateHtmlReport(results) {
+            const successfulCount = results.filter(r => r.status === 'success').length;
+            const failedCount = results.length - successfulCount;
+
+            const rows = results.map(result => {
+                const statusIcon = result.status === 'success'
+                    ? '<span style="color: green; font-size: 1.5em;">✔</span>'
+                    : '<span style="color: red; font-size: 1.5em;">✖</span>';
+                
+                const preview = result.status === 'success'
+                    ? `<img src="${result.filename}" alt="preview" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px;">`
+                    : '<span>N/A</span>';
+
+                return `
+                    <tr>
+                        <td style="text-align: center;">${statusIcon}</td>
+                        <td style="text-align: center;">${preview}</td>
+                        <td style="word-break: break-all;"><a href="${result.url}" target="_blank">${result.url}</a></td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Image Download Summary</title>
+                    <style>
+                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2em; background-color: #f8f9fa; color: #343a40; }
+                        .container { max-width: 900px; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                        h1, h2 { color: #212529; }
+                        .stats { display: flex; gap: 2em; margin-bottom: 2em; padding-bottom: 1em; border-bottom: 1px solid #dee2e6; }
+                        .stat-item { text-align: center; }
+                        .stat-item p { margin: 0; font-size: 1.2em; font-weight: 500; }
+                        .stat-item .count { font-size: 2em; font-weight: bold; }
+                        .success { color: #28a745; }
+                        .failed { color: #dc3545; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 2em; }
+                        th, td { padding: 12px 15px; border: 1px solid #dee2e6; text-align: left; vertical-align: middle; }
+                        th { background-color: #e9ecef; }
+                        tr:nth-of-type(even) { background-color: #f8f9fa; }
+                        a { color: #007bff; text-decoration: none; }
+                        a:hover { text-decoration: underline; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Image Download Summary</h1>
+                        <div class="stats">
+                            <div class="stat-item">
+                                <p>Total Processed</p>
+                                <p class="count">${results.length}</p>
+                            </div>
+                            <div class="stat-item">
+                                <p class="success">Successful</p>
+                                <p class="count success">${successfulCount}</p>
+                            </div>
+                            <div class="stat-item">
+                                <p class="failed">Failed</p>
+                                <p class="count failed">${failedCount}</p>
+                            </div>
+                        </div>
+                        <h2>Detailed Results</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px; text-align: center;">Status</th>
+                                    <th style="width: 100px; text-align: center;">Preview</th>
+                                    <th>Original URL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                        </table>
+                    </div>
+                </body>
+                </html>
+            `;
+        }
+
+        function updateStatus(message, colorClass = 'text-gray-700') {
+            statusMessage.textContent = message;
+            statusMessage.className = `text-lg font-medium ${colorClass}`;
+        }
+    </script>
+</body>
+</html>
